@@ -186,43 +186,42 @@ def calculate_and_aggregate_meal_features(df, time_window_hours=2):
     """
     df = df.copy()
 
-    # Add 'Breakfast Window' columns
+    # Define time windows for breakfast and lunch
     df['Breakfast Window Start'] = df['Breakfast Time'] - pd.Timedelta(hours=time_window_hours)
     df['Breakfast Window End'] = df['Breakfast Time'] + pd.Timedelta(hours=time_window_hours)
+    df['Lunch Window Start'] = df['Lunch Time'] - pd.Timedelta(hours=time_window_hours)
+    df['Lunch Window End'] = df['Lunch Time'] + pd.Timedelta(hours=time_window_hours)
+
+    # Filter data within breakfast and lunch windows
     df['Breakfast Window'] = df['Timestamp'].between(
         df['Breakfast Window Start'], df['Breakfast Window End']
     )
-
-    # Add 'Lunch Window' columns
-    df['Lunch Window Start'] = df['Lunch Time'] - pd.Timedelta(hours=time_window_hours)
-    df['Lunch Window End'] = df['Lunch Time'] + pd.Timedelta(hours=time_window_hours)
     df['Lunch Window'] = df['Timestamp'].between(
         df['Lunch Window Start'], df['Lunch Window End']
     )
-
-    # Filter data within breakfast and lunch windows
     breakfast_data = df[df['Breakfast Window']]
     lunch_data = df[df['Lunch Window']]
 
-    # Aggregate CGM features for breakfast
-    breakfast_features = breakfast_data.groupby(['Subject ID', 'Day'])['CGM Reading'].agg(
-        Breakfast_mean='mean',
-        Breakfast_std='std',
-        Breakfast_min='min',
-        Breakfast_max='max',
-        Breakfast_auc=lambda x: np.trapezoid(x.values),
-        Breakfast_rate_of_change=lambda x: x.diff().mean()
-    ).reset_index()
+    # Enhanced feature aggregation for CGM data
+    def aggregate_features(data, prefix):
+        return data.groupby(['Subject ID', 'Day'])['CGM Reading'].agg(
+            **{
+                f'{prefix}_mean': 'mean',
+                f'{prefix}_std': 'std',
+                f'{prefix}_min': 'min',
+                f'{prefix}_max': 'max',
+                f'{prefix}_median': 'median',
+                f'{prefix}_range': lambda x: x.max() - x.min(), 
+                f'{prefix}_auc': lambda x: np.trapz(x.values), 
+                f'{prefix}_rate_of_change': lambda x: x.diff().mean(), 
+                f'{prefix}_skewness': lambda x: x.skew(),
+                f'{prefix}_kurtosis': lambda x: x.kurt() 
+            }
+        ).reset_index()
 
-    # Aggregate CGM features for lunch
-    lunch_features = lunch_data.groupby(['Subject ID', 'Day'])['CGM Reading'].agg(
-        Lunch_mean='mean',
-        Lunch_std='std',
-        Lunch_min='min',
-        Lunch_max='max',
-        Lunch_auc=lambda x: np.trapezoid(x.values),
-        Lunch_rate_of_change=lambda x: x.diff().mean()
-    ).reset_index()
+    # Aggregate features for breakfast and lunch
+    breakfast_features = aggregate_features(breakfast_data, 'Breakfast')
+    lunch_features = aggregate_features(lunch_data, 'Lunch')
 
     # Merge breakfast and lunch features
     meal_features = pd.merge(
@@ -257,6 +256,7 @@ def calculate_and_aggregate_meal_features(df, time_window_hours=2):
     return meal_features
 
 
+
 class CGMDataPipeline:
     def __init__(self, time_window=2):
         """
@@ -287,7 +287,8 @@ class CGMDataPipeline:
         expanded_df = expand_df(df)
 
         print("\nStep 4: Calculating and aggregating meal features (breakfast and lunch)...")
-        processed_df = calculate_and_aggregate_meal_features(expanded_df, time_window_hours=self.time_window)
+        processed_df = calculate_and_aggregate_meal_features(
+            expanded_df, time_window_hours=self.time_window)
 
         if dropna:
             print("\nStep 5: Dropping rows with missing features...")
